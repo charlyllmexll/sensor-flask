@@ -3,6 +3,7 @@ from datetime import datetime
 import threading
 import requests
 import logging
+import pytz
 
 app = Flask(__name__)
 
@@ -53,7 +54,8 @@ def movimiento():
 
     global ULTIMO_EVENTO
 
-    ahora = datetime.now()
+    zona_mexico = pytz.timezone('America/Mexico_City')
+    ahora = datetime.now(zona_mexico)
 
     # Anti-spam
     if ULTIMO_EVENTO:

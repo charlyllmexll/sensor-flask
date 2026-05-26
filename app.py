@@ -1,6 +1,5 @@
 ﻿from flask import Flask, jsonify, render_template_string
 from datetime import datetime
-import threading
 import requests
 import logging
 import pytz
@@ -84,13 +83,8 @@ def movimiento():
         f"⏰ Hora: {evento['hora']}"
     )
 
-    # 🔥 ENVÍO ASÍNCRONO
-    hilo = threading.Thread(
-        target=enviar_whatsapp,
-        args=(mensaje,)
-    )
-
-    hilo.start()
+    # Envío inmediato al detectar el evento
+    enviar_whatsapp(mensaje)
 
     return jsonify({
         "status": "ok",

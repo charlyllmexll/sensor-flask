@@ -1,10 +1,12 @@
 ﻿from flask import Flask, jsonify, render_template_string
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 import requests
 import logging
 import pytz
 
 app = Flask(__name__)
+executor = ThreadPoolExecutor(max_workers=2)
 
 # =========================
 # CONFIGURACIÓN
@@ -37,7 +39,7 @@ def enviar_whatsapp(mensaje):
             "apikey": API_KEY
         }
 
-        response = requests.get(url, params=params, timeout=10)
+        response = requests.get(url, params=params, timeout=5)
 
         logging.info(f"WhatsApp enviado: {response.status_code}")
 
@@ -83,8 +85,8 @@ def movimiento():
         f"⏰ Hora: {evento['hora']}"
     )
 
-    # Envío inmediato al detectar el evento
-    enviar_whatsapp(mensaje)
+    # Envío en segundo plano para no bloquear la respuesta al sensor
+    executor.submit(enviar_whatsapp, mensaje)
 
     return jsonify({
         "status": "ok",

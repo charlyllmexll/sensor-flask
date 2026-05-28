@@ -1,6 +1,7 @@
 ﻿from flask import Flask, jsonify
 from datetime import datetime
 import sqlite3
+import pytz
 
 app = Flask(__name__)
 
@@ -9,6 +10,12 @@ app = Flask(__name__)
 # =========================
 
 DATABASE = 'eventos.db'
+
+# =========================
+# CONFIGURAR ZONA HORARIA
+# =========================
+
+zona_mexico = pytz.timezone('America/Mexico_City')
 
 
 # =========================
@@ -41,7 +48,8 @@ def inicializar_db():
 @app.route('/movimiento', methods=['GET'])
 def movimiento():
 
-    ahora = datetime.now()
+    # Hora México
+    ahora = datetime.now(zona_mexico)
 
     fecha = ahora.strftime("%d/%m/%Y")
     hora = ahora.strftime("%H:%M:%S")
@@ -176,13 +184,32 @@ def health():
 
 
 # =========================
-# INICIAR APP
+# HOME
+# =========================
+
+@app.route('/')
+def home():
+
+    return jsonify({
+        "mensaje": "Servidor Flask activo"
+    })
+
+
+# =========================
+# INICIALIZAR
 # =========================
 
 inicializar_db()
 
-app.run(
-    host='0.0.0.0',
-    port=5000,
-    debug=True
-)
+
+# =========================
+# EJECUTAR LOCAL
+# =========================
+
+if __name__ == '__main__':
+
+    app.run(
+        host='0.0.0.0',
+        port=5000,
+        debug=True
+    )

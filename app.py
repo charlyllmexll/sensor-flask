@@ -1,179 +1,188 @@
-﻿from flask import Flask, jsonify, render_template_string
+﻿from flask import Flask, jsonify
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor
-import requests
-import logging
-import pytz
+import sqlite3
 
 app = Flask(__name__)
-executor = ThreadPoolExecutor(max_workers=2)
 
 # =========================
-# CONFIGURACIÓN
+# CONFIGURAR BASE DATOS
 # =========================
 
-WHATSAPP_PHONE = "5213338517153"
-API_KEY = "3939038"
+DATABASE = 'eventos.db'
 
-# Anti-spam
-ULTIMO_EVENTO = None
-TIEMPO_MINIMO = 10
-
-# Historial
-eventos = []
-
-# Logs
-logging.basicConfig(level=logging.INFO)
 
 # =========================
-# FUNCIÓN WHATSAPP
+# CREAR TABLA
 # =========================
 
-def enviar_whatsapp(mensaje):
-    try:
-        url = "https://api.callmebot.com/whatsapp.php"
+def inicializar_db():
 
-        params = {
-            "phone": WHATSAPP_PHONE,
-            "text": mensaje,
-            "apikey": API_KEY
-        }
+    conn = sqlite3.connect(DATABASE)
 
-        response = requests.get(url, params=params, timeout=5)
+    cursor = conn.cursor()
 
-        logging.info(f"WhatsApp enviado: {response.status_code}")
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS eventos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fecha TEXT,
+            hora TEXT,
+            mensaje TEXT
+        )
+    ''')
 
-    except Exception as e:
-        logging.error(f"Error WhatsApp: {e}")
+    conn.commit()
+    conn.close()
+
 
 # =========================
-# API MOVIMIENTO
+# INSERTAR EVENTO
 # =========================
 
 @app.route('/movimiento', methods=['GET'])
 def movimiento():
 
-    global ULTIMO_EVENTO
+    ahora = datetime.now()
 
-    zona_mexico = pytz.timezone('America/Mexico_City')
-    ahora = datetime.now(zona_mexico)
+    fecha = ahora.strftime("%d/%m/%Y")
+    hora = ahora.strftime("%H:%M:%S")
 
-    # Anti-spam
-    if ULTIMO_EVENTO:
-        diferencia = (ahora - ULTIMO_EVENTO).seconds
+    mensaje = "Movimiento detectado"
 
-        if diferencia < TIEMPO_MINIMO:
-            return "IGNORADO", 200
+    conn = sqlite3.connect(DATABASE)
 
-    ULTIMO_EVENTO = ahora
+    cursor = conn.cursor()
 
-    # Evento
-    evento = {
-        "fecha": ahora.strftime("%d/%m/%Y"),
-        "hora": ahora.strftime("%H:%M:%S"),
-        "mensaje": "Movimiento detectado"
-    }
+    cursor.execute('''
+        INSERT INTO eventos (
+            fecha,
+            hora,
+            mensaje
+        )
+        VALUES (?, ?, ?)
+    ''', (fecha, hora, mensaje))
 
-    eventos.append(evento)
+    conn.commit()
 
-    logging.info(f"Evento recibido: {evento}")
+    conn.close()
 
-    # Mensaje WhatsApp
-    mensaje = (
-        "🚨 Movimiento detectado\n"
-        f"📅 Fecha: {evento['fecha']}\n"
-        f"⏰ Hora: {evento['hora']}"
-    )
-
-    # Envío en segundo plano para no bloquear la respuesta al sensor
-    executor.submit(enviar_whatsapp, mensaje)
+    print(f"[EVENTO] {fecha} {hora}")
 
     return jsonify({
         "status": "ok",
-        "evento": evento
+        "mensaje": mensaje,
+        "fecha": fecha,
+        "hora": hora
     })
 
+
 # =========================
-# API EVENTOS
+# OBTENER HISTORIAL
 # =========================
 
 @app.route('/eventos', methods=['GET'])
-def ver_eventos():
-    return jsonify(eventos)
+def eventos():
+
+    conn = sqlite3.connect(DATABASE)
+
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        SELECT
+            id,
+            fecha,
+            hora,
+            mensaje
+        FROM eventos
+        ORDER BY id DESC
+    ''')
+
+    rows = cursor.fetchall()
+
+    conn.close()
+
+    eventos_lista = []
+
+    for row in rows:
+
+        evento = {
+            "id": row[0],
+            "fecha": row[1],
+            "hora": row[2],
+            "mensaje": row[3]
+        }
+
+        eventos_lista.append(evento)
+
+    return jsonify(eventos_lista)
+
 
 # =========================
-# DASHBOARD WEB
+# ÚLTIMO EVENTO
 # =========================
 
-@app.route('/')
-def dashboard():
+@app.route('/ultimo_evento', methods=['GET'])
+def ultimo_evento():
 
-    html = """
-    <html>
-    <head>
-        <title>Monitor IoT</title>
+    conn = sqlite3.connect(DATABASE)
 
-        <meta http-equiv="refresh" content="3">
+    cursor = conn.cursor()
 
-        <style>
-            body{
-                font-family: Arial;
-                background:#121212;
-                color:white;
-                padding:20px;
-            }
+    cursor.execute('''
+        SELECT
+            id,
+            fecha,
+            hora,
+            mensaje
+        FROM eventos
+        ORDER BY id DESC
+        LIMIT 1
+    ''')
 
-            .card{
-                background:#1f1f1f;
-                padding:15px;
-                margin-bottom:10px;
-                border-radius:10px;
-            }
+    row = cursor.fetchone()
 
-            h1{
-                color:#00ff99;
-            }
-        </style>
-    </head>
+    conn.close()
 
-    <body>
+    if row:
 
-        <h1>🚨 Monitor de Movimiento</h1>
+        evento = {
+            "id": row[0],
+            "fecha": row[1],
+            "hora": row[2],
+            "mensaje": row[3]
+        }
 
-        {% for evento in eventos %}
+        return jsonify(evento)
 
-        <div class="card">
-            <h3>{{evento.mensaje}}</h3>
+    else:
 
-            <p>📅 {{evento.fecha}}</p>
-            <p>⏰ {{evento.hora}}</p>
-        </div>
+        return jsonify({
+            "id": 0,
+            "fecha": "--",
+            "hora": "--",
+            "mensaje": "Sin eventos"
+        })
 
-        {% endfor %}
-
-    </body>
-    </html>
-    """
-
-    return render_template_string(
-        html,
-        eventos=reversed(eventos[-20:])
-    )
 
 # =========================
-# LIMPIAR EVENTOS
+# HEALTH CHECK
 # =========================
 
-@app.route('/limpiar')
-def limpiar():
+@app.route('/health', methods=['GET'])
+def health():
 
-    eventos.clear()
+    return jsonify({
+        "status": "online"
+    })
 
-    return "Eventos eliminados"
 
 # =========================
-# MAIN
+# INICIAR APP
 # =========================
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+inicializar_db()
+
+app.run(
+    host='0.0.0.0',
+    port=5000,
+    debug=True
+)
